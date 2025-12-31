@@ -12,6 +12,10 @@ This app calculates the exact physical fuel usage and Virtual Energy (VE) limits
   <img src="screenshots/app-preview.jpg" width="300" alt="App Screenshot"/>
 </p>
 
+## Installation
+
+Download and install the APK from [Releases](https://github.com/andrejsstepanovs/lmu-fuel/releases/latest) or build from source.
+
 ## Features
 
 * **Fuel & VE Synchronization:** Instantly calculates the synced Fuel Ratio required for the car setup menu.
