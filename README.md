@@ -2,7 +2,15 @@
 
 A raw, precision utility application for Android designed for **Le Mans Ultimate (LMGT3 class)**.
 
+**Simple fuel calculator with no hand holding**
+
 This app calculates the exact physical fuel usage and Virtual Energy (VE) limits required for a race stint. It adheres to a "Raw Math" philosophy: no hidden buffers or safety margins—just the exact numbers based on your inputs.
+
+## Preview
+
+<p align="center">
+  <img src="screenshots/app-preview.jpg" width="300" alt="App Screenshot"/>
+</p>
 
 ## Features
 
