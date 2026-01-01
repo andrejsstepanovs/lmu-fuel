@@ -488,7 +488,11 @@ fun StepperInputRow(
 
         OutlinedTextField(
             value = value,
-            onValueChange = onValueChange,
+            onValueChange = { newValue ->
+                // Fix: Allow comma as decimal separator by replacing it with dot immediately
+                val sanitized = newValue.copy(text = newValue.text.replace(',', '.'))
+                onValueChange(sanitized)
+            },
             label = label,
             textStyle = LocalTextStyle.current.copy(
                 fontSize = 22.sp,
