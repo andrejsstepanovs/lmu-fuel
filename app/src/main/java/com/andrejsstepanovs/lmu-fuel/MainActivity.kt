@@ -1,7 +1,6 @@
 package com.andrejsstepanovs.lmufuel
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -24,7 +23,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -49,6 +49,7 @@ const val KEY_DURATION = "duration"
 const val KEY_LAP_TIME = "lap_time"
 const val KEY_FUEL_CONS = "fuel_cons"
 const val KEY_VE_CONS = "ve_cons"
+const val KEY_LAPS_ADJ = "laps_adj" // New key for lap adjustment
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,42 +59,55 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Optimization: Initialize SharedPreferences and read values BEFORE UI composition
-        // This prevents disk reads from blocking the first frame draw (fixing skipped frames)
         val prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val initialDuration = prefs.getString(KEY_DURATION, "") ?: ""
         val initialLapTime = prefs.getString(KEY_LAP_TIME, "") ?: ""
         val initialFuel = prefs.getString(KEY_FUEL_CONS, "") ?: ""
         val initialVe = prefs.getString(KEY_VE_CONS, "") ?: ""
+        // Default adjustment is 0.0
+        val initialLapsAdj = prefs.getFloat(KEY_LAPS_ADJ, 0.0f).toDouble()
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = Color(0xFFBB86FC),
-                    secondary = Color(0xFF03DAC6),
-                    background = Color(0xFF121212),
-                    surface = Color(0xFF1E1E1E),
-                    onSurface = Color.White
+            // FIX: Force fontScale to 1.0f. 
+            // This treats all 'sp' as 'dp', preventing system font size settings 
+            // from breaking the dashboard layout (The "Dashboard Approach").
+            CompositionLocalProvider(
+                LocalDensity provides Density(
+                    density = LocalDensity.current.density,
+                    fontScale = 1.0f
                 )
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    CalculatorScreen(
-                        initDuration = initialDuration,
-                        initLapTime = initialLapTime,
-                        initFuel = initialFuel,
-                        initVe = initialVe,
-                        onSave = { duration, lap, fuel, ve ->
-                            prefs.edit().apply {
-                                putString(KEY_DURATION, duration)
-                                putString(KEY_LAP_TIME, lap)
-                                putString(KEY_FUEL_CONS, fuel)
-                                putString(KEY_VE_CONS, ve)
-                                apply()
-                            }
-                        }
+                MaterialTheme(
+                    colorScheme = darkColorScheme(
+                        primary = Color(0xFFBB86FC),
+                        secondary = Color(0xFF03DAC6),
+                        background = Color(0xFF121212),
+                        surface = Color(0xFF1E1E1E),
+                        onSurface = Color.White
                     )
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        CalculatorScreen(
+                            initDuration = initialDuration,
+                            initLapTime = initialLapTime,
+                            initFuel = initialFuel,
+                            initVe = initialVe,
+                            initLapsAdj = initialLapsAdj,
+                            onSave = { duration, lap, fuel, ve, adj ->
+                                prefs.edit().apply {
+                                    putString(KEY_DURATION, duration)
+                                    putString(KEY_LAP_TIME, lap)
+                                    putString(KEY_FUEL_CONS, fuel)
+                                    putString(KEY_VE_CONS, ve)
+                                    putFloat(KEY_LAPS_ADJ, adj.toFloat())
+                                    apply()
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -106,60 +120,62 @@ fun CalculatorScreen(
     initLapTime: String,
     initFuel: String,
     initVe: String,
-    onSave: (String, String, String, String) -> Unit
+    initLapsAdj: Double,
+    onSave: (String, String, String, String, Double) -> Unit
 ) {
     val focusManager = LocalFocusManager.current
 
     // Helper to create initial TextFieldValue from String
     fun tfv(text: String) = TextFieldValue(text = text)
 
-    // Mutable State for Inputs initialized with hoisted values
+    // Mutable State for Inputs
     var durationInput by remember { mutableStateOf(tfv(initDuration)) }
     var lapTimeInput by remember { mutableStateOf(tfv(initLapTime)) }
     var fuelConsInput by remember { mutableStateOf(tfv(initFuel)) }
     var veConsInput by remember { mutableStateOf(tfv(initVe)) }
+    
+    // New State for Laps Adjustment
+    var lapsAdjustment by remember { mutableDoubleStateOf(initLapsAdj) }
 
     // Optimization: Debounced Save
-    // We wait for 500ms of inactivity before hitting SharedPreferences.
-    // This dramatically reduces main thread work during rapid typing/stepper usage.
-    LaunchedEffect(durationInput.text, lapTimeInput.text, fuelConsInput.text, veConsInput.text) {
+    LaunchedEffect(durationInput.text, lapTimeInput.text, fuelConsInput.text, veConsInput.text, lapsAdjustment) {
         delay(500)
-        onSave(durationInput.text, lapTimeInput.text, fuelConsInput.text, veConsInput.text)
+        onSave(durationInput.text, lapTimeInput.text, fuelConsInput.text, veConsInput.text, lapsAdjustment)
     }
 
-    // --- Calculation Logic (Runs immediately, not debounced) ---
+    // --- Calculation Logic ---
     val durationMin = durationInput.text.toDoubleOrNull() ?: 0.0
-
-    // Parse Lap Time (Simplified to Raw Seconds)
     val lapTimeSec = lapTimeInput.text.toDoubleOrNull() ?: 0.0
-
     val fuelPerLap = fuelConsInput.text.toDoubleOrNull() ?: 0.0
     val vePerLap = veConsInput.text.toDoubleOrNull() ?: 0.0
 
-    // Logic A: Total Laps
-    val totalLaps: Int = if (lapTimeSec > 0 && durationMin > 0) {
+    // Logic A: Base Laps (The integer calculation from duration)
+    val baseLaps: Int = if (lapTimeSec > 0 && durationMin > 0) {
         ceil((durationMin * 60) / lapTimeSec).toInt()
     } else {
         0
     }
 
-    // Logic B: Fuel Ratio
+    // Logic B: Final Laps (Base + User Adjustment)
+    // We assume you can't have negative total laps, but negative adjustment is fine
+    val finalLaps = (baseLaps + lapsAdjustment).coerceAtLeast(0.0)
+
+    // Logic C: Fuel Ratio (Setup parameter, technically independent of lap count)
     val fuelRatioStr: String = if (vePerLap > 0) {
-        // Updated to 2 decimal places per requirement
         "%.2f".format(Locale.US, fuelPerLap / vePerLap)
     } else {
         "---"
     }
 
-    // Logic C: Totals
-    val totalFuelNeeded = totalLaps * fuelPerLap
-    val totalVeNeeded = totalLaps * vePerLap
-    val totalTimeSeconds = totalLaps * lapTimeSec
+    // Logic D: Totals (Now derived from finalLaps)
+    val totalFuelNeeded = finalLaps * fuelPerLap
+    val totalVeNeeded = finalLaps * vePerLap
+    val totalTimeSeconds = finalLaps * lapTimeSec
 
-    // Logic 2.4: Pit Stop Warning
+    // Logic E: Pit Stop Warning
     val isPitStopRequired = totalVeNeeded > 100.0
 
-    // --- Helpers for Steppers ---
+    // --- Helpers for Input Steppers ---
     fun updateText(newValue: String, updateState: (TextFieldValue) -> Unit) {
         updateState(TextFieldValue(text = newValue, selection = TextRange(newValue.length)))
     }
@@ -168,25 +184,22 @@ fun CalculatorScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            // Clear focus and hide keyboard when tapping outside input fields
             .pointerInput(Unit) {
-                detectTapGestures(onTap = {
-                    focusManager.clearFocus()
-                })
+                detectTapGestures(onTap = { focusManager.clearFocus() })
             }
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header (Refined: Small, Grey, Right-Aligned)
+        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp), // Reduced bottom padding
+                .padding(bottom = 4.dp),
             horizontalArrangement = Arrangement.End
         ) {
             Text(
-                text = "LMU Fuel & VE v0.1.1",
+                text = "LMU Fuel & VE v1.1",
                 fontSize = 12.sp,
                 color = Color.Gray,
                 fontWeight = FontWeight.Normal
@@ -195,7 +208,7 @@ fun CalculatorScreen(
 
         // Input Section
         InputCard {
-            // Duration Stepper (Steps of 1 min)
+            // Duration
             StepperInputRow(
                 label = { Text("Duration (min)", fontSize = 12.sp) },
                 value = durationInput,
@@ -212,9 +225,8 @@ fun CalculatorScreen(
                 imeAction = ImeAction.Next,
                 focusManager = focusManager
             )
-
-            // Lap Time Stepper (Steps of 1 sec)
-            // Generate dynamic label for mm:ss with BOLD formatting
+            
+            // Lap Time
             val lapTimeLabel = buildAnnotatedString {
                 append("Lap Time (sec)")
                 if (lapTimeSec > 0) {
@@ -224,7 +236,6 @@ fun CalculatorScreen(
                     }
                 }
             }
-
             StepperInputRow(
                 label = { Text(text = lapTimeLabel, fontSize = 12.sp) },
                 value = lapTimeInput,
@@ -237,25 +248,23 @@ fun CalculatorScreen(
                     val current = lapTimeInput.text.toDoubleOrNull() ?: 0.0
                     updateText("%.1f".format(Locale.US, (current - 1.0).coerceAtLeast(0.0)), { lapTimeInput = it })
                 },
-                keyboardType = KeyboardType.Decimal, // Decimal for dot support
+                keyboardType = KeyboardType.Decimal,
                 imeAction = ImeAction.Next,
                 focusManager = focusManager
             )
 
-            // Fuel Stepper (Steps of 0.1, Snap to Grid)
+            // Fuel
             StepperInputRow(
                 label = { Text("Fuel Cons. (L/lap)", fontSize = 12.sp) },
                 value = fuelConsInput,
                 onValueChange = { fuelConsInput = it },
                 onIncrement = {
                     val current = fuelConsInput.text.toDoubleOrNull() ?: 0.0
-                    // Snap logic: (floor(23.5 + 0.05) + 1) / 10 -> 2.4
                     val next = (floor(current * 10 + 0.05) + 1) / 10.0
                     updateText("%.1f".format(Locale.US, next), { fuelConsInput = it })
                 },
                 onDecrement = {
                     val current = fuelConsInput.text.toDoubleOrNull() ?: 0.0
-                    // Snap logic: (ceil(23.5 - 0.05) - 1) / 10 -> 2.3
                     val prev = (ceil(current * 10 - 0.05) - 1) / 10.0
                     updateText("%.1f".format(Locale.US, prev.coerceAtLeast(0.0)), { fuelConsInput = it })
                 },
@@ -264,7 +273,7 @@ fun CalculatorScreen(
                 focusManager = focusManager
             )
 
-            // VE Stepper (Steps of 0.1, Snap to Grid)
+            // VE
             StepperInputRow(
                 label = { Text("VE Cons. (%/lap)", fontSize = 12.sp) },
                 value = veConsInput,
@@ -285,15 +294,13 @@ fun CalculatorScreen(
             )
         }
 
-        // Divider with reduced top padding (1/2 size)
         Divider(modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
 
-        // Output Section (High Visibility)
+        // Output Section
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Fuel Ratio (Largest)
             Text(text = "FUEL RATIO", fontSize = 14.sp, color = Color.Gray)
             Text(
                 text = fuelRatioStr,
@@ -304,14 +311,14 @@ fun CalculatorScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Grid for other stats
+            // Stats Grid
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Left Column: VE & Total Time
+                // Left Column
                 Column(horizontalAlignment = Alignment.Start) {
-                    Text(text = "TOTAL VE %", fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "NEED VIRTUAL ENERGY", fontSize = 12.sp, color = Color.Gray)
                     Text(
                         text = if (vePerLap > 0) "%.1f%%".format(Locale.US, totalVeNeeded) else "---",
                         fontSize = 32.sp,
@@ -321,7 +328,7 @@ fun CalculatorScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(text = "TOTAL TIME", fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "DRIVE TIME", fontSize = 12.sp, color = Color.Gray)
                     Text(
                         text = formatSecondsToTime(totalTimeSeconds),
                         fontSize = 28.sp,
@@ -329,9 +336,9 @@ fun CalculatorScreen(
                     )
                 }
 
-                // Right Column: Fuel & Laps
+                // Right Column: Fuel & Laps with Adjustment
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "TOTAL FUEL", fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "NEED FUEL", fontSize = 12.sp, color = Color.Gray)
                     Text(
                         text = if (fuelPerLap > 0) "%.1f L".format(Locale.US, totalFuelNeeded) else "---",
                         fontSize = 28.sp,
@@ -340,18 +347,62 @@ fun CalculatorScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(text = "LAPS REQUIRED", fontSize = 12.sp, color = Color.Gray)
-                    Text(
-                        text = "$totalLaps",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text(text = "LAPS", fontSize = 12.sp, color = Color.Gray)
+                    
+                    // Laps Display with Adjustment
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            text = "$baseLaps",
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (lapsAdjustment != 0.0) {
+                            Text(
+                                text = if (lapsAdjustment > 0) " + $lapsAdjustment" else " - ${kotlin.math.abs(lapsAdjustment)}",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (lapsAdjustment < 0) Color(0xFFFF5252) else MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp) // Align slightly with base number
+                            )
+                        } else {
+                            // Empty spacer to reserve height if needed, or just show nothing
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Laps Adjustment Buttons
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                         RepeatingIconButton(
+                            onClick = { lapsAdjustment -= 0.5 },
+                            modifier = Modifier.size(32.dp) // Smaller than main input buttons
+                        ) {
+                             // Minus visual
+                             Box(
+                                 modifier = Modifier.size(16.dp),
+                                 contentAlignment = Alignment.Center
+                             ) {
+                                 Box(
+                                     modifier = Modifier
+                                         .width(10.dp)
+                                         .height(2.dp)
+                                         .background(LocalContentColor.current)
+                                 )
+                             }
+                        }
+
+                        RepeatingIconButton(
+                            onClick = { lapsAdjustment += 0.5 },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Laps", modifier = Modifier.size(16.dp))
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Warning Label
             if (isPitStopRequired) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFCF6679)),
@@ -370,6 +421,8 @@ fun CalculatorScreen(
         }
     }
 }
+
+// --- Utils & Components ---
 
 fun formatSecondsToTime(totalSeconds: Double): String {
     if (totalSeconds <= 0) return "---"
@@ -419,11 +472,7 @@ fun StepperInputRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        // Decrement Button
-        RepeatingIconButton(
-            onClick = onDecrement
-        ) {
-            // Visual minus using Box to ensure perfect vertical centering matching the Add Icon
+        RepeatingIconButton(onClick = onDecrement) {
             Box(
                 modifier = Modifier.size(24.dp),
                 contentAlignment = Alignment.Center
@@ -437,7 +486,6 @@ fun StepperInputRow(
             }
         }
 
-        // Text Field
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
@@ -447,10 +495,9 @@ fun StepperInputRow(
                 fontWeight = FontWeight.Bold
             ),
             singleLine = true,
-            // Constrain height to make padding tighter (since contentPadding param is unavailable)
             modifier = Modifier
                 .weight(1f)
-                //.height(64.dp)
+                .height(64.dp)
                 .onFocusChanged { focusState ->
                     if (focusState.isFocused) {
                         val text = value.text
@@ -469,10 +516,7 @@ fun StepperInputRow(
             )
         )
 
-        // Increment Button
-        RepeatingIconButton(
-            onClick = onIncrement
-        ) {
+        RepeatingIconButton(onClick = onIncrement) {
             Icon(Icons.Default.Add, contentDescription = "Increase")
         }
     }
@@ -486,24 +530,21 @@ fun RepeatingIconButton(
 ) {
     val currentOnClick by rememberUpdatedState(onClick)
     val scope = rememberCoroutineScope()
-
-    // Use Surface directly instead of FilledIconButton to avoid internal click conflict
-    // Matching FilledIconButton styles manually
     val containerColor = MaterialTheme.colorScheme.surfaceVariant
     val contentColor = contentColorFor(containerColor)
 
     Surface(
         modifier = modifier
-            .size(40.dp) // Standard icon button size
+            .size(40.dp) // Default size, overridden by modifier if provided
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
                         val job = scope.launch {
-                            currentOnClick() // Fire once immediately
-                            delay(500) // Initial delay before repeating
+                            currentOnClick()
+                            delay(500)
                             while (isActive) {
                                 currentOnClick()
-                                delay(100) // Repeat interval
+                                delay(100)
                             }
                         }
                         tryAwaitRelease()
