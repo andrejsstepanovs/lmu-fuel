@@ -133,7 +133,7 @@ fun CalculatorScreen(
     var lapTimeInput by remember { mutableStateOf(tfv(initLapTime)) }
     var fuelConsInput by remember { mutableStateOf(tfv(initFuel)) }
     var veConsInput by remember { mutableStateOf(tfv(initVe)) }
-    
+
     // New State for Laps Adjustment
     var lapsAdjustment by remember { mutableDoubleStateOf(initLapsAdj) }
 
@@ -142,6 +142,13 @@ fun CalculatorScreen(
         delay(500)
         onSave(durationInput.text, lapTimeInput.text, fuelConsInput.text, veConsInput.text, lapsAdjustment)
     }
+
+    // --- Validation Logic ---
+    // Check if non-empty inputs are valid numbers. If toDoubleOrNull returns null for a non-empty string, it's invalid (e.g. "1.2.3", "-")
+    val isDurationError = durationInput.text.isNotEmpty() && durationInput.text.toDoubleOrNull() == null
+    val isLapTimeError = lapTimeInput.text.isNotEmpty() && lapTimeInput.text.toDoubleOrNull() == null
+    val isFuelError = fuelConsInput.text.isNotEmpty() && fuelConsInput.text.toDoubleOrNull() == null
+    val isVeError = veConsInput.text.isNotEmpty() && veConsInput.text.toDoubleOrNull() == null
 
     // --- Calculation Logic ---
     val durationMin = durationInput.text.toDoubleOrNull() ?: 0.0
@@ -221,11 +228,12 @@ fun CalculatorScreen(
                     val current = durationInput.text.toDoubleOrNull() ?: 0.0
                     updateText("%.0f".format(Locale.US, (current - 1).coerceAtLeast(0.0)), { durationInput = it })
                 },
+                isError = isDurationError,
                 keyboardType = KeyboardType.Number,
                 imeAction = ImeAction.Next,
                 focusManager = focusManager
             )
-            
+
             // Lap Time
             val lapTimeLabel = buildAnnotatedString {
                 append("Lap Time (sec)")
@@ -248,6 +256,7 @@ fun CalculatorScreen(
                     val current = lapTimeInput.text.toDoubleOrNull() ?: 0.0
                     updateText("%.1f".format(Locale.US, (current - 1.0).coerceAtLeast(0.0)), { lapTimeInput = it })
                 },
+                isError = isLapTimeError,
                 keyboardType = KeyboardType.Decimal,
                 imeAction = ImeAction.Next,
                 focusManager = focusManager
@@ -268,6 +277,7 @@ fun CalculatorScreen(
                     val prev = (ceil(current * 10 - 0.05) - 1) / 10.0
                     updateText("%.1f".format(Locale.US, prev.coerceAtLeast(0.0)), { fuelConsInput = it })
                 },
+                isError = isFuelError,
                 keyboardType = KeyboardType.Decimal,
                 imeAction = ImeAction.Next,
                 focusManager = focusManager
@@ -288,6 +298,7 @@ fun CalculatorScreen(
                     val prev = (ceil(current * 10 - 0.05) - 1) / 10.0
                     updateText("%.1f".format(Locale.US, prev.coerceAtLeast(0.0)), { veConsInput = it })
                 },
+                isError = isVeError,
                 keyboardType = KeyboardType.Decimal,
                 imeAction = ImeAction.Done,
                 focusManager = focusManager
@@ -318,7 +329,7 @@ fun CalculatorScreen(
             ) {
                 // Left Column
                 Column(horizontalAlignment = Alignment.Start) {
-                    Text(text = "NEED VIRTUAL ENERGY", fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "TOTAL VE %", fontSize = 12.sp, color = Color.Gray)
                     Text(
                         text = if (vePerLap > 0) "%.1f%%".format(Locale.US, totalVeNeeded) else "---",
                         fontSize = 32.sp,
@@ -328,7 +339,7 @@ fun CalculatorScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(text = "DRIVE TIME", fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "TOTAL TIME", fontSize = 12.sp, color = Color.Gray)
                     Text(
                         text = formatSecondsToTime(totalTimeSeconds),
                         fontSize = 28.sp,
@@ -338,7 +349,7 @@ fun CalculatorScreen(
 
                 // Right Column: Fuel & Laps with Adjustment
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "NEED FUEL", fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "TOTAL FUEL", fontSize = 12.sp, color = Color.Gray)
                     Text(
                         text = if (fuelPerLap > 0) "%.1f L".format(Locale.US, totalFuelNeeded) else "---",
                         fontSize = 28.sp,
@@ -347,8 +358,8 @@ fun CalculatorScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(text = "LAPS", fontSize = 12.sp, color = Color.Gray)
-                    
+                    Text(text = "LAPS REQUIRED", fontSize = 12.sp, color = Color.Gray)
+
                     // Laps Display with Adjustment
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
@@ -373,22 +384,22 @@ fun CalculatorScreen(
 
                     // Laps Adjustment Buttons
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                         RepeatingIconButton(
+                        RepeatingIconButton(
                             onClick = { lapsAdjustment -= 0.5 },
                             modifier = Modifier.size(32.dp) // Smaller than main input buttons
                         ) {
-                             // Minus visual
-                             Box(
-                                 modifier = Modifier.size(16.dp),
-                                 contentAlignment = Alignment.Center
-                             ) {
-                                 Box(
-                                     modifier = Modifier
-                                         .width(10.dp)
-                                         .height(2.dp)
-                                         .background(LocalContentColor.current)
-                                 )
-                             }
+                            // Minus visual
+                            Box(
+                                modifier = Modifier.size(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(10.dp)
+                                        .height(2.dp)
+                                        .background(LocalContentColor.current)
+                                )
+                            }
                         }
 
                         RepeatingIconButton(
@@ -463,6 +474,7 @@ fun StepperInputRow(
     onValueChange: (TextFieldValue) -> Unit,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
+    isError: Boolean = false, // Added error flag
     keyboardType: KeyboardType,
     imeAction: ImeAction,
     focusManager: androidx.compose.ui.focus.FocusManager
@@ -494,6 +506,7 @@ fun StepperInputRow(
                 onValueChange(sanitized)
             },
             label = label,
+            isError = isError, // Pass error state to text field
             textStyle = LocalTextStyle.current.copy(
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold

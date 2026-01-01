@@ -16,6 +16,17 @@ This app calculates the exact physical fuel usage and Virtual Energy (VE) limits
 
 Download and install the APK from [Releases](https://github.com/andrejsstepanovs/lmu-fuel/releases/latest) or build from source.
 
+## Disclamer
+
+**This app will not hold your hand** - it is a feature!
+
+You are responsible for inputs! For example, calculations will be off if:
+- If you entered your best lap but drive slower in race
+- If the grid is fast enough that you need to do another lap
+- you crash and now car consumes more fuel
+- you rounded down your lap time or fuel consumption
+- etc.
+
 ## Features
 
 * **Fuel & VE Synchronization:** Instantly calculates the synced Fuel Ratio required for the car setup menu.
