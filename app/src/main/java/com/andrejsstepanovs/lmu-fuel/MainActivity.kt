@@ -206,7 +206,7 @@ fun CalculatorScreen(
             horizontalArrangement = Arrangement.End
         ) {
             Text(
-                text = "LMU Fuel & VE v1.1",
+                text = "LMU Fuel & VE v0.1.2",
                 fontSize = 12.sp,
                 color = Color.Gray,
                 fontWeight = FontWeight.Normal
